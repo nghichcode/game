@@ -1,0 +1,260 @@
+<html lang="vi">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>ABC</title>
+</head>
+<body style="margin: 0;padding: 0;">
+<div id="data_src" style="display: none">
+    <img id="atlas_im" src="atlas.png"/>
+</div>
+<div id="app" style="position:relative;margin:auto;">
+    <canvas id="c" style="width: 100%;height: 100%;">
+    </canvas>
+</div>
+<script type="text/javascript">
+  const fps = 24;
+  const DISTANCE = 6;
+  const SPACE = 3;
+  const store = {
+    state: {
+      atlas: null,
+      game_over: false,
+      game_over_date: new Date(),
+      force_stop: false,
+    },
+    set_game_over: function (val) {
+      this.state.game_over = val;
+      this.state.game_over_date = new Date();
+    },
+  };
+  const game = document.getElementById('app');
+
+  async function load(
+    init = {id: '', w: 0, h: 0},
+    preload = function () {
+    },
+    create = function () {
+    }
+  ) {
+    const canvas = document.getElementById(init.id);
+    canvas.setAttribute('width', init.w);
+    canvas.setAttribute('height', init.h);
+    const context = canvas.getContext('2d');
+    let sw = window.innerWidth, sh = window.innerHeight;
+    if (sw > sh) {
+      sw = sh * init.w / init.h;
+    }
+    game.setAttribute('width', sw);
+    game.setAttribute('height', sh);
+    game.style.width = sw;
+    game.style.height = sh;
+
+    const loader = await preload(context);
+    await create(context, loader);
+  }
+
+  function startGame() {
+    store.set_game_over(false);
+    load(
+      {id: 'c', w: 288, h: 512},
+      async function (context) {
+        if (!store.state.atlas) {
+          store.state.atlas = document.getElementById('atlas_im');
+          store.state.atlas.data = await fetch('atlas.json').then(resp => resp.json());
+        }
+
+        return {atlas: store.state.atlas};
+      }, function (context, loader) {
+        window.context = context;
+        window.loader = loader;
+        // Init func
+        const atlas = loader.atlas;
+
+        function getSize(obj) {
+          if (!atlas.data || !obj.name in atlas.data) return {};
+          return {
+            w: +atlas.data[obj.name].w,
+            h: +atlas.data[obj.name].h,
+          }
+        }
+
+        function getPosition(obj, name = '') {
+          if (name) {
+            if (!atlas.data || !name in atlas.data) return {};
+            return {
+              x: +atlas.data[name].x * atlas.naturalWidth,
+              y: +atlas.data[name].y * atlas.naturalHeight,
+            }
+          }
+          if (!atlas.data || !obj.name in atlas.data) return {};
+          return {
+            x: +atlas.data[obj.name].x * atlas.naturalWidth,
+            y: +atlas.data[obj.name].y * atlas.naturalHeight,
+          }
+        }
+
+        function birdFly(bird) {
+          if (store.state.game_over && new Date() - store.state.game_over_date > 1500) {
+            startGame();
+            return;
+          } else if (store.state.game_over) return;
+          bird.dy = DISTANCE;
+        }
+
+        // Init data
+        const bird = {
+          x: 30, y: 0, sx: 0, sy: 0, dy: 0, w: 0, h: 0, name: 'bird0_0',
+          ls: {
+            size: 3,
+            data: [
+              ['bird0_0', 'bird0_1', 'bird0_2'],
+              ['bird1_0', 'bird1_1', 'bird1_2'],
+              ['bird2_0', 'bird2_1', 'bird2_2']
+            ]
+          },
+          delay: 4, rt: 0,
+          hypotenuse: 0, color: 0
+        };
+        bird.w = getSize(bird).w - 12;
+        bird.h = getSize(bird).h - 20;
+        bird.sx = function () {
+          return getPosition(bird).x + 6;
+        };
+        bird.sy = function () {
+          return getPosition(bird).y + 10;
+        };
+        bird.hypotenuse = Math.sqrt(bird.h * bird.h + bird.w * bird.w);
+        bird.color = Math.trunc(Math.random() * bird.ls.data.length);
+        const dtube = {x: 0, y: 0, name: 'pipe_down'};
+        const utube = {x: 0, y: 0, name: 'pipe_up'};
+        const bg = {x: 0, y: 0, name: 'bg_day'};
+        const land = {x: 0, y: 0, name: 'land'};
+
+        bird.fly = {
+          count: 0,
+          pos: 0,
+          getName: function (color = 0) {
+            if (this.count == 0) this.pos = (this.pos + 1) % bird.ls.size;
+            this.count = (this.count + 1) % bird.delay;
+            return bird.ls.data[color][this.pos];
+          },
+        };
+        // Check
+        document.body.onkeypress = function () {
+          birdFly(bird);
+        };
+        game.onclick = function () {
+          birdFly(bird);
+        };
+
+        const overH = 10;
+        const dtubeH = getSize(dtube).h;
+        bird.y = context.canvas.height / 2 - bird.h / 2;
+        land.y = context.canvas.height - getSize(land).h;
+        utube.x = dtube.x = context.canvas.width - getSize(dtube).w;
+        dtube.y = -(dtubeH / overH + Math.random() * (dtubeH - 2 * dtubeH / overH));
+        utube.y = dtube.y + dtubeH + bird.h * SPACE;
+
+        const time = setInterval(() => {
+          if (store.state.force_stop) {
+            clearInterval(time);
+            return;
+          }
+          // Pre-check
+          if (dtube.x < -getSize(dtube).w) {
+            dtube.y = -(dtubeH / overH + Math.random() * (dtubeH - 2 * dtubeH / overH));
+            utube.y = dtube.y + dtubeH + bird.h * SPACE;
+          }
+          if (bird.y + bird.h > land.y) {
+            store.set_game_over(true);
+            clearInterval(time);
+          } else if (bird.y < 0) {
+            bird.dy = -DISTANCE;
+          }
+          if (
+            ((bird.y < dtube.y + dtubeH) || (bird.y > utube.y))
+            && (
+              (bird.x + bird.w > utube.x
+                && bird.x + bird.w <= utube.x + getSize(utube).w
+              ) || (bird.x > utube.x
+                && bird.x <= utube.x + getSize(utube).w
+              )
+            )
+          ) {
+            store.set_game_over(true);
+          }
+          // Calc
+          bird.y -= bird.dy -= 0.5;
+          if (bird.y + bird.h > land.y) {
+            bird.y = land.y - bird.h + 13;
+          }
+          if (!store.state.game_over) {
+            utube.x = dtube.x = (dtube.x < -getSize(dtube).w)
+              ? context.canvas.width : dtube.x - DISTANCE;
+          }
+          // Draw
+          // context.fillStyle = "#FF0000";
+          // context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+          context.drawImage(
+            atlas, getPosition(bg).x, getPosition(bg).y, getSize(bg).w, getSize(bg).h, bg.x, bg.y, getSize(bg).w, getSize(bg).h
+          );
+          context.drawImage(
+            atlas, getPosition(dtube).x, getPosition(dtube).y, getSize(dtube).w, getSize(dtube).h, dtube.x, dtube.y, getSize(dtube).w, getSize(dtube).h
+          );
+          context.drawImage(
+            atlas, getPosition(utube).x, getPosition(utube).y, getSize(utube).w, getSize(utube).h, utube.x, utube.y, getSize(utube).w, getSize(utube).h
+          );
+          context.drawImage(
+            atlas, getPosition(land).x, getPosition(land).y, getSize(land).w, getSize(land).h,
+            land.x, land.y, getSize(land).w, getSize(land).h
+          );
+          bird.name = bird.fly.getName(bird.color);
+          if (store.state.game_over) {
+            if (bird.y + bird.hypotenuse > land.y) {
+              bird.y = land.y - bird.hypotenuse;
+            }
+            let tmp = {x: bird.x + bird.w / 2, y: bird.y + bird.h / 2};
+            context.translate(tmp.x, tmp.y);
+            // if (bird.rt < Math.PI / 2) bird.rt += Math.PI / 4;
+            bird.rt = Math.PI / 4;
+            context.rotate(bird.rt);
+            context.drawImage(
+              atlas, bird.sx(), bird.sy(), bird.w, bird.h, 0, 0, bird.w, bird.h
+            );
+            context.rotate(-bird.rt);
+            context.translate(-tmp.x, -tmp.y);
+
+            if (bird.y + bird.hypotenuse >= land.y) {
+              clearInterval(time);
+              setTimeout(function () {
+                let game_over = {x: 0, y: 0, name: 'text_game_over'};
+                let gow = getSize(game_over).w;
+                let goh = getSize(game_over).h;
+                game_over.x = context.canvas.width / 2 - gow / 2;
+                game_over.y = context.canvas.height / 2 - goh / 2;
+                context.drawImage(
+                  atlas, getPosition(game_over).x, getPosition(game_over).y, gow, goh,
+                  game_over.x, game_over.y, gow, goh
+                );
+              }, 500);
+            }
+          } else {
+            context.drawImage(
+              atlas, bird.sx(), bird.sy(), bird.w, bird.h, bird.x, bird.y, bird.w, bird.h
+            );
+          }
+          // store.state.force_stop = true;
+        }, fps);
+      }
+    );
+  }
+
+  window.onload = function () {
+    startGame();
+  }
+</script>
+
+
+</body>
+</html>
